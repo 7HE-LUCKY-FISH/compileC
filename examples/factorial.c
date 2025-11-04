@@ -9,8 +9,9 @@ int factorial(int n) {
 
 int main() {
     int x;
-    x = 5;
     int result;
+    
+    x = 5;
     result = factorial(x);
     return result;
 }
