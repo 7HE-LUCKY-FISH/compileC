@@ -9,12 +9,13 @@ from semantic import SemanticAnalyzer
 if __name__ == "__main__":
     print("--------- Lexer ---------")
     lexer = LexicalAnalyzer()
-    text = """result = (x += y * (z >> 2)) & ((flag ? *p++ : -q) & 0xFF);"""
+    #text = """result = (x += y * (z >> 2)) & ((flag ? *p++ : -q) & 0xFF);"""
     # text = """(x + y * (z >> 2)) & ((flag ? *p++ : -q) & 0xFF)"""
     # text = """a + (b * c)"""
     # text = "flag ? *p++ : -q"
     # text = """*p++"""
     # text = """1+1+2"""
+    text = """while (x < 10) { x = x + 1; }"""
     tokens = lexer.analyze(text)
 
     syn = SyntaticAnalyzer()

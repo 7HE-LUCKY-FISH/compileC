@@ -155,6 +155,30 @@ class IntermediateCodeGenerator:
             ">>" : [([
                 ("shr", (ASMOperand.RESULT_REGISTER, ASMOperand.OPERAND_REGISTER_1, ASMOperand.OPERAND_REGISTER_2)),
             ], ["int", "int"])],
+            "<" : [([
+                ("lt", (ASMOperand.RESULT_REGISTER, ASMOperand.OPERAND_REGISTER_1, ASMOperand.OPERAND_REGISTER_2))], 
+                ["int", "int"])],
+            ">" : [([
+                ("gt", (ASMOperand.RESULT_REGISTER, ASMOperand.OPERAND_REGISTER_1, ASMOperand.OPERAND_REGISTER_2))], 
+                ["int", "int"])],
+            "<=" : [([
+                ("le", (ASMOperand.RESULT_REGISTER, ASMOperand.OPERAND_REGISTER_1, ASMOperand.OPERAND_REGISTER_2))], 
+                ["int", "int"])],
+            ">=" : [([
+                ("ge", (ASMOperand.RESULT_REGISTER, ASMOperand.OPERAND_REGISTER_1, ASMOperand.OPERAND_REGISTER_2))],
+                  ["int", "int"])],
+            "==" : [([
+                ("eq", (ASMOperand.RESULT_REGISTER, ASMOperand.OPERAND_REGISTER_1, ASMOperand.OPERAND_REGISTER_2))], 
+                ["int", "int"])],
+            "!=" : [([
+                ("ne", (ASMOperand.RESULT_REGISTER, ASMOperand.OPERAND_REGISTER_1, ASMOperand.OPERAND_REGISTER_2))], 
+                ["int", "int"])],
+            "&&" : [([
+                ("and", (ASMOperand.RESULT_REGISTER, ASMOperand.OPERAND_REGISTER_1, ASMOperand.OPERAND_REGISTER_2))], 
+                ["int", "int"])],
+            "||" : [([
+                ("or", (ASMOperand.RESULT_REGISTER, ASMOperand.OPERAND_REGISTER_1, ASMOperand.OPERAND_REGISTER_2))], 
+                ["int", "int"])],
         }
 
         if(tree.type == SyntaxTree.NUMERIC_LITERAL):
@@ -195,6 +219,57 @@ class IntermediateCodeGenerator:
                         return list(itertools.chain(*[ i[0] for i in generated])) + self._get_emitted(emitted_template, result_register, [
                             generated[0][1], generated[1][1] if len(generated) == 2 else ""
                         ], generated[0][2] if len(generated) >= 1 else ""), result_register, ""
+
+        if(tree.type == SyntaxTree.WHILE_STATEMENT):
+            cond_node = tree.children[0]
+            body_node = tree.children[1]
+            
+            start_label = self._get_next_branch_target()
+            end_label = self._get_next_branch_target()
+            
+            cond_code, cond_reg, _ = self.generate(cond_node)
+            body_code, _, _ = self.generate(body_node)
+            
+            code = [("label", (start_label, "", ""))]
+            code += cond_code
+            code += [("bz", (cond_reg, end_label, ""))]
+            code += body_code
+            code += [("j", (start_label, "", ""))]
+            code += [("label", (end_label, "", ""))]
+            
+            return code, None, None
+
+        if(tree.type == SyntaxTree.FOR_STATEMENT):
+            init_node = tree.children[0]
+            cond_node = tree.children[1]
+            update_node = tree.children[2]
+            body_node = tree.children[3]
+            
+            start_label = self._get_next_branch_target()
+            end_label = self._get_next_branch_target()
+            
+            init_code, _, _ = self.generate(init_node)
+            cond_code, cond_reg, _ = self.generate(cond_node)
+            update_code, _, _ = self.generate(update_node)
+            body_code, _, _ = self.generate(body_node)
+            
+            code = init_code
+            code += [("label", (start_label, "", ""))]
+            code += cond_code
+            code += [("bz", (cond_reg, end_label, ""))]
+            code += body_code
+            code += update_code
+            code += [("j", (start_label, "", ""))]
+            code += [("label", (end_label, "", ""))]
+            
+            return code, None, None
+
+        if(tree.type == SyntaxTree.BLOCK_STATEMENT):
+            code = []
+            for child in tree.children:
+                c, _, _ = self.generate(child)
+                code += c
+            return code, None, None
 
 
 

@@ -6,8 +6,11 @@ class SyntaxTree:
     EXPRESSION = 0
     IDENTIFIER = 1
     NUMERIC_LITERAL = 2
+    WHILE_STATEMENT = 3
+    FOR_STATEMENT = 4
+    BLOCK_STATEMENT = 5
 
-    NAME = ["EXPRESSION", "IDENTIFIER", "NUMERIC_LITERAL"]
+    NAME = ["EXPRESSION", "IDENTIFIER", "NUMERIC_LITERAL","WHILE", "FOR", "BLOCK"]
 
     _id = 0
 
@@ -34,6 +37,9 @@ class SyntaticAnalyzer:
     IF_STATEMENT = 1
     ELSE_STATEMENT = 2
     ELSE_IF_STATEMENT = 3
+    WHILE_STATEMENT = 3
+    FOR_STATEMENT = 4
+    BLOCK_STATEMENT = 5
 
     EXPRESSION = 104
     L_VALUE = 105
@@ -396,15 +402,81 @@ class SyntaticAnalyzer:
 
         return self._parse_conditional(tokens, i, j)
 
-    def _analyze(self, tokens : List[Tuple[str, int]], i = 0):
-        if(tokens[i][1] == LexicalAnalyzer.KEYWORD):
-            if(tokens[i][0] == "if"):
-                pass
 
-    def analyze(self, tokens : list[tuple[str, int]]):
-        j = 0
-        for i, (token, _) in enumerate(tokens):
-            if(token == ";"):
-                j = i
+    def _find_matching_parenthesis(self, tokens, start_index, end_index):
+        stack = 0
+        for k in range(start_index, end_index):
+            if tokens[k][0] == "(":
+                stack += 1
+            elif tokens[k][0] == ")":
+                stack -= 1
+                if stack == 0:
+                    return k
+        return -1
 
-        return self._parse_expression(tokens, 0, j)
+    def _find_split_points(self, tokens, start, end, delimiter):
+        points = []
+        stack = 0
+        for k in range(start, end):
+            if tokens[k][0] in ["(", "[", "{"]: stack += 1
+            elif tokens[k][0] in [")", "]", "}"]: stack -= 1
+            
+            if stack == 0 and tokens[k][0] == delimiter:
+                points.append(k)
+        return points
+
+    def _parse_while(self, tokens, i, j):
+        open_paren = i + 1
+        close_paren = self._find_matching_parenthesis(tokens, open_paren, j)
+        
+        if close_paren == -1:
+            raise SyntaxError("Missing closing parenthesis in while loop")
+
+        condition = self._parse_expression(tokens, open_paren + 1, close_paren)
+        body = self._parse_statement(tokens, close_paren + 1, j)
+
+        tree = SyntaxTree(SyntaxTree.WHILE_STATEMENT, "while")
+        tree.children = [condition, body]
+        return tree
+
+    def _parse_for(self, tokens, i, j):
+        open_paren = i + 1
+        close_paren = self._find_matching_parenthesis(tokens, open_paren, j)
+        
+        if close_paren == -1:
+            raise SyntaxError("Missing closing parenthesis in for loop")
+        semi_locs = self._find_split_points(tokens, open_paren + 1, close_paren, ";")
+        
+        if len(semi_locs) != 2:
+            raise SyntaxError("Invalid for-loop syntax. Expected 'for(init; cond; update)'")
+
+        init_tree = self._parse_expression(tokens, open_paren + 1, semi_locs[0])
+        cond_tree = self._parse_expression(tokens, semi_locs[0] + 1, semi_locs[1])
+        update_tree = self._parse_expression(tokens, semi_locs[1] + 1, close_paren)
+        
+        body_tree = self._parse_statement(tokens, close_paren + 1, j)
+
+        tree = SyntaxTree(SyntaxTree.FOR_STATEMENT, "for")
+        tree.children = [init_tree, cond_tree, update_tree, body_tree]
+        return tree
+
+    def _parse_statement(self, tokens, i, j):
+        if i >= j:
+            return None
+
+        if tokens[i][0] == "{":
+            return self._parse_statement(tokens, i + 1, j - 1)
+
+        if tokens[i][0] == "while":
+            return self._parse_while(tokens, i, j)
+        
+        if tokens[i][0] == "for":
+            return self._parse_for(tokens, i, j)
+        
+        if j > i and tokens[j-1][0] == ";":
+            return self._parse_expression(tokens, i, j-1)
+
+        return self._parse_expression(tokens, i, j)
+
+    def analyze(self, tokens: list[tuple[str, int]]):
+        return self._parse_statement(tokens, 0, len(tokens))

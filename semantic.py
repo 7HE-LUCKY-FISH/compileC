@@ -84,5 +84,26 @@ class SemanticAnalyzer():
                         return return_type
                 raise SyntaxError(f"Unknown operation \"{tree.expression_type}\" between type {arg_types}")
         
+        if(tree.type == SyntaxTree.WHILE_STATEMENT):
+            condition_type = self.get_type(tree.children[0])
+            if(condition_type != "bool"):
+                raise SyntaxError(f"While loop condition must be bool, got {condition_type}")
+            self.get_type(tree.children[1])
+            return "void"
+
+        if(tree.type == SyntaxTree.FOR_STATEMENT):
+            self.get_type(tree.children[0])
+            condition_type = self.get_type(tree.children[1])
+            if(condition_type != "bool"):
+                raise SyntaxError(f"For loop condition must be bool, got {condition_type}")
+            self.get_type(tree.children[2])
+            self.get_type(tree.children[3])
+            return "void"
+
+        if(tree.type == SyntaxTree.BLOCK_STATEMENT):
+            for child in tree.children:
+                self.get_type(child)
+            return "void"
+
     def analyze(self, tree: SyntaxTree):
         self.get_type(tree)
