@@ -66,13 +66,13 @@ class SemanticAnalyzer():
                 tree.data_type = self.global_scope[tree.expression_type]
                 return self.global_scope[tree.expression_type]
             
-            raise SyntaxError(f"Unknown Identifier \"{tree.expression_type}\"")
+            raise SyntaxError(f"Unknown Identifier \"{tree.expression_type}\" at line {tree.line}")
         
         if(tree.type == SyntaxTree.EXPRESSION):
             if(tree.expression_type == "?"):
                 arg_types = [ self.get_type(child) for child in tree.children ]
                 if(arg_types[0] != "bool" or arg_types[1] != arg_types[2]):
-                    raise SyntaxError(f"Invalid types for ternary operator")
+                    raise SyntaxError(f"Invalid types for ternary operator at line {tree.line}")
                 tree.data_type = arg_types[1]
                 return arg_types[1]
             if(tree.expression_type in type_definitions):
@@ -82,12 +82,12 @@ class SemanticAnalyzer():
                     if(parameter_types == arg_types):
                         tree.data_type = return_type
                         return return_type
-                raise SyntaxError(f"Unknown operation \"{tree.expression_type}\" between type {arg_types}")
+                raise SyntaxError(f"Unknown operation \"{tree.expression_type}\" between type {arg_types} at line {tree.line}")
         
         if(tree.type == SyntaxTree.WHILE_STATEMENT):
             condition_type = self.get_type(tree.children[0])
             if(condition_type != "bool"):
-                raise SyntaxError(f"While loop condition must be bool, got {condition_type}")
+                raise SyntaxError(f"While loop condition must be bool, got {condition_type} at line {tree.line}")
             self.get_type(tree.children[1])
             return "void"
 
@@ -95,7 +95,7 @@ class SemanticAnalyzer():
             self.get_type(tree.children[0])
             condition_type = self.get_type(tree.children[1])
             if(condition_type != "bool"):
-                raise SyntaxError(f"For loop condition must be bool, got {condition_type}")
+                raise SyntaxError(f"For loop condition must be bool, got {condition_type} at line {tree.line}")
             self.get_type(tree.children[2])
             self.get_type(tree.children[3])
             return "void"

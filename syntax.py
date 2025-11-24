@@ -1,6 +1,6 @@
 from typing import *
 from lexer import LexicalAnalyzer
-
+from errors import CompilationError
 
 class SyntaxTree:
     EXPRESSION = 0
@@ -16,11 +16,12 @@ class SyntaxTree:
 
 
 
-    def __init__(self, typ, expression_type):
+    def __init__(self, typ, expression_type, line=0):
         self.children = []
         self.type = typ
         self.expression_type = expression_type
         self.value = 0
+        self.line = line
 
         self.id = SyntaxTree._id
         SyntaxTree._id += 1
@@ -65,21 +66,21 @@ class SyntaticAnalyzer:
 
     OTHER = -1
 
-    def _is_keyword(self, tokens : List[Tuple[str, int]], i = 0, keyword : str | None = None):
+    def _is_keyword(self, tokens : List[Tuple[str, int, int]], i = 0, keyword : str | None = None):
         if(tokens[i][1] != LexicalAnalyzer.KEYWORD):
             return False
         return tokens[i][0] == keyword if keyword != None else True
 
-    def _is_operator(self, tokens : List[Tuple[str, int]], i = 0, operator : str | None = None):
+    def _is_operator(self, tokens : List[Tuple[str, int, int]], i = 0, operator : str | None = None):
         if(tokens[i][1] != LexicalAnalyzer.OPERATOR):
             return False
         return tokens[i][0] == operator if operator != None else True
 
-    def _analyze_if_self(self, tokens : List[Tuple[str, int]], i = 0):
+    def _analyze_if_self(self, tokens : List[Tuple[str, int, int]], i = 0):
         if(self._is_keyword(tokens, i, "if")):
             pass
     
-    def _first_outside_parenthesis(self, tokens : List[Tuple[str, int]], matches, i = 0, j = -1, ):
+    def _first_outside_parenthesis(self, tokens : List[Tuple[str, int, int]], matches, i = 0, j = -1, ):
         j = len(tokens) if j == -1 else j
 
         sta = []
@@ -139,30 +140,32 @@ class SyntaticAnalyzer:
             j -= 1
         return -1
 
-    def _parse_primary(self, tokens : List[Tuple[str, int]], i = 0, j = -1):
+    def _parse_primary(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
         if(i == j) :
-            raise SyntaxError()
+            prev_line = tokens[i-1][2] if i > 0 else 0
+            raise CompilationError("Expected expression", prev_line)
         
+
         if(j - i > 1):
             if(tokens[i][0] == "(" and tokens[j-1][0] == ")"):
                 return self._parse_expression(tokens, i + 1, j - 1)
         else:
             if(tokens[i][1] == LexicalAnalyzer.HEX_LITERAL):
-                a = SyntaxTree(SyntaxTree.NUMERIC_LITERAL, tokens[i][0])
+                a = SyntaxTree(SyntaxTree.NUMERIC_LITERAL, tokens[i][0], tokens[i][2])
                 a.value = str(int(tokens[i][0][2:], base=16))
                 return a
             if(tokens[i][1] == LexicalAnalyzer.NUM_LITERAL):
-                a = SyntaxTree(SyntaxTree.NUMERIC_LITERAL, tokens[i][0])
+                a = SyntaxTree(SyntaxTree.NUMERIC_LITERAL, tokens[i][0], tokens[i][2])
                 a.value = str(int(tokens[i][0], base=16))
                 return a
 
-            return SyntaxTree(SyntaxTree.IDENTIFIER, tokens[i][0])
+            return SyntaxTree(SyntaxTree.IDENTIFIER, tokens[i][0], tokens[i][2])
         
-    def _parse_postfix(self, tokens : List[Tuple[str, int]], i = 0, j = -1):
+    def _parse_postfix(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
         if(j - i > 1):
             operator = tokens[j-1][0]
             if(operator in ["++", "--"]):
-                new_tree = SyntaxTree(SyntaxTree.EXPRESSION, operator)
+                new_tree = SyntaxTree(SyntaxTree.EXPRESSION, operator, tokens[j-1][2])
                 new_tree.children = [
                     self._parse_postfix(tokens, i, j-1),
                 ]
@@ -170,7 +173,7 @@ class SyntaticAnalyzer:
             if(operator == "]"):
                 operator_location = self._last_outside_parenthesis(tokens, ["["], i, j-1)
                 if(operator_location != i):
-                    new_tree = SyntaxTree(SyntaxTree.EXPRESSION, "[]")
+                    new_tree = SyntaxTree(SyntaxTree.EXPRESSION, "[]", tokens[j-1][2])
                     new_tree.children = [
                         self._parse_postfix(tokens, i, operator_location),
                         self._parse_expression(tokens, operator_location + 1, j - 1)
@@ -180,7 +183,7 @@ class SyntaticAnalyzer:
             if(operator == ")"):
                 operator_location = self._last_outside_parenthesis(tokens, ["("], i, j-1)
                 if(operator_location != i):
-                    new_tree = SyntaxTree(SyntaxTree.EXPRESSION, "()")
+                    new_tree = SyntaxTree(SyntaxTree.EXPRESSION, "()", tokens[j-1][2])
                     new_tree.children = [
                         self._parse_postfix(tokens, i, operator_location),
                         self._parse_expression(tokens, operator_location + 1, j - 1)
@@ -191,7 +194,7 @@ class SyntaticAnalyzer:
         if(j - i > 2):
             operator = tokens[j-2][0]
             if(operator in ["->", "*"] and j-2 != i):
-                new_tree = SyntaxTree(SyntaxTree.EXPRESSION, operator)
+                new_tree = SyntaxTree(SyntaxTree.EXPRESSION, operator, tokens[j-2][2])
                 new_tree.children = [
                     self._parse_postfix(tokens, i, j-2),
                     SyntaxTree(SyntaxTree.IDENTIFIER, tokens[j-1])
@@ -200,9 +203,9 @@ class SyntaticAnalyzer:
 
         return self._parse_primary(tokens, i, j)
 
-    def _parse_unary(self, tokens : List[Tuple[str, int]], i = 0, j = -1):
+    def _parse_unary(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
         if(tokens[i][0] in ["++", "--", "-", "+", "!", "~", "*", "&", "sizeof"]):
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[i][0]+"_pre")
+            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[i][0]+"_pre", tokens[i][2])
             new_tree.children = [
                 self._parse_unary(tokens, i + 1, j),
             ]
@@ -221,10 +224,10 @@ class SyntaticAnalyzer:
             return new_tree
 
         return self._parse_unary(tokens, i, j)
-    def _parse_multiplicative(self, tokens : List[Tuple[str, int]], i = 0, j = -1):
+    def _parse_multiplicative(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
         operator_location = self._last_outside_parenthesis(tokens, ["*", "/"], i, j)
         if(operator_location != -1 and operator_location != i):
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location][0])
+            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location][0], tokens[operator_location][2])
             new_tree.children = [
                 self._parse_multiplicative(tokens, i, operator_location),
                 self._parse_pointer_to_member(tokens, operator_location+1, j)
@@ -233,11 +236,11 @@ class SyntaticAnalyzer:
 
         return self._parse_pointer_to_member(tokens, i, j)
     
-    def _parse_additive(self, tokens : List[Tuple[str, int]], i = 0, j = -1):
+    def _parse_additive(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
         operator_location = self._last_outside_parenthesis(tokens, ["+", "-"], i, j)
 
         if(operator_location != -1 and operator_location != i):
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location][0])
+            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location][0], tokens[operator_location][2])
             new_tree.children = [
                 self._parse_additive(tokens, i, operator_location),
                 self._parse_multiplicative(tokens, operator_location+1, j)
@@ -352,12 +355,12 @@ class SyntaticAnalyzer:
 
         return self._parse_bitwise_or(tokens, i, j)
     
-    def _parse_logical_or(self, tokens : List[Tuple[str, int]], i = 0, j = -1):
+    def _parse_logical_or(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
         operator_location = self._last_outside_parenthesis(tokens, ["||"], i, j)
         if(operator_location != -1):
             if(operator_location == i): 
-                raise SyntaxError()
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location][0])
+                raise SyntaxError(f"Invalid logical or operator position at line {tokens[i][2]}")
+            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location][0], tokens[operator_location][2])
             new_tree.children = [
                 self._parse_logical_or(tokens, i, operator_location),
                 self._parse_logical_and(tokens, operator_location+1, j)
@@ -366,18 +369,18 @@ class SyntaticAnalyzer:
 
         return self._parse_logical_and(tokens, i, j)
     
-    def _parse_conditional(self, tokens : List[Tuple[str, int]], i = 0, j = -1) -> Tuple[SyntaxTree, Tuple[int, int]]:
+    def _parse_conditional(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1) -> Tuple[SyntaxTree, Tuple[int, int]]:
         
         ternary_operator_location = self._first_outside_parenthesis(tokens, ["?"], i, j)
         if(ternary_operator_location != -1):
-            ternary_tree = SyntaxTree(SyntaxTree.EXPRESSION, "?")
+            ternary_tree = SyntaxTree(SyntaxTree.EXPRESSION, "?", tokens[ternary_operator_location][2])
             tree = self._parse_logical_or(tokens, i, ternary_operator_location)
             ternary_operator_else_location = self._first_outside_parenthesis(tokens, [":"], ternary_operator_location, j)
             ternary_tree.children.append(tree)
             tree = self._parse_expression(tokens, ternary_operator_location + 1, ternary_operator_else_location)
 
             if(ternary_operator_else_location == -1):
-                raise SyntaxError()
+                raise SyntaxError(f"Missing else in ternary operator at line {tokens[ternary_operator_location][2]}")
 
             ternary_tree.children.append(tree)
             tree = self._parse_conditional(tokens, ternary_operator_else_location + 1, j)
@@ -390,10 +393,10 @@ class SyntaticAnalyzer:
     def _parse_expression(self, tokens : List[Tuple[str, int]], i = 0, j = -1):
         return self._parse_assignment(tokens, i, j)
     
-    def _parse_assignment(self, tokens : List[Tuple[str, int]], i = 0, j = -1):
+    def _parse_assignment(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
         operator_location = self._first_outside_parenthesis(tokens, ["=", "+=", "-=", "*=", "/=", "~=", ">>=", "<<=", "^=", "%=", "&=", "|="], i, j)
         if(operator_location != -1 and operator_location != j-1):
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location][0])
+            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location][0], tokens[operator_location][2])
             new_tree.children = [
                 self._parse_unary(tokens, i, operator_location),
                 self._parse_assignment(tokens, operator_location+1, j)
@@ -430,12 +433,12 @@ class SyntaticAnalyzer:
         close_paren = self._find_matching_parenthesis(tokens, open_paren, j)
         
         if close_paren == -1:
-            raise SyntaxError("Missing closing parenthesis in while loop")
+            raise SyntaxError(f"Missing closing parenthesis in while loop at line {tokens[i][2]}")
 
         condition = self._parse_expression(tokens, open_paren + 1, close_paren)
         body = self._parse_statement(tokens, close_paren + 1, j)
 
-        tree = SyntaxTree(SyntaxTree.WHILE_STATEMENT, "while")
+        tree = SyntaxTree(SyntaxTree.WHILE_STATEMENT, "while", tokens[i][2])
         tree.children = [condition, body]
         return tree
 
@@ -444,11 +447,11 @@ class SyntaticAnalyzer:
         close_paren = self._find_matching_parenthesis(tokens, open_paren, j)
         
         if close_paren == -1:
-            raise SyntaxError("Missing closing parenthesis in for loop")
+            raise SyntaxError(f"Missing closing parenthesis in for loop at line {tokens[i][2]}")
         semi_locs = self._find_split_points(tokens, open_paren + 1, close_paren, ";")
         
         if len(semi_locs) != 2:
-            raise SyntaxError("Invalid for-loop syntax. Expected 'for(init; cond; update)'")
+            raise SyntaxError(f"Invalid for-loop syntax. Expected 'for(init; cond; update)' at line {tokens[i][2]}")
 
         init_tree = self._parse_expression(tokens, open_paren + 1, semi_locs[0])
         cond_tree = self._parse_expression(tokens, semi_locs[0] + 1, semi_locs[1])
@@ -456,7 +459,7 @@ class SyntaticAnalyzer:
         
         body_tree = self._parse_statement(tokens, close_paren + 1, j)
 
-        tree = SyntaxTree(SyntaxTree.FOR_STATEMENT, "for")
+        tree = SyntaxTree(SyntaxTree.FOR_STATEMENT, "for", tokens[i][2])
         tree.children = [init_tree, cond_tree, update_tree, body_tree]
         return tree
 
@@ -477,6 +480,7 @@ class SyntaticAnalyzer:
             return self._parse_expression(tokens, i, j-1)
 
         return self._parse_expression(tokens, i, j)
+    
 
-    def analyze(self, tokens: list[tuple[str, int]]):
+    def analyze(self, tokens: list[tuple[str, int, int]]):
         return self._parse_statement(tokens, 0, len(tokens))

@@ -1,5 +1,6 @@
 from typing import *
 from trie import Trie
+from errors import CompilationError
 
 KEYWORDS = [
     "alignas",
@@ -349,16 +350,32 @@ class LexicalAnalyzer:
         
         return (None, i+1)
 
-    def analyze(self, s) -> list[tuple[str, int]]:
+    def analyze(self, s) -> list[tuple[str, int, int]]:
         i = 0
         n = len(s)
-
+        line = 1
         tokens = []
 
         while(i < n):
+
+
+            if s[i].isspace():
+                if s[i] == '\n':
+                    line += 1
+                i += 1
+                continue
+
             typ, j = self._parse_token(s, i)
+
+            if typ is None:
+                raise CompilationError(f"Unexpected character '{s[i]}'", line, s[i])
+            
             if(typ != None):
-                tokens.append((s[i:j], typ))
+                tokens.append((s[i:j], typ, line))
+            # Count newlines in the token
+            for c in s[i:j]:
+                if c == '\n':
+                    line += 1
             i = j
 
         typestr = [
@@ -374,7 +391,7 @@ class LexicalAnalyzer:
             "OTHER"
         ]
 
-        for tk, typ in tokens:
-            print(tk, typestr[typ])
+        for tk, typ, ln in tokens:
+            print(tk, typestr[typ], ln)
         
         return tokens

@@ -1,3 +1,4 @@
+#include <stdio.h>
 
 int main(){
     int i;
@@ -11,6 +12,6 @@ int main(){
     while (sum < 10){
         sum += 1;
     }
-
-    return res, sum;
+    printf("res: %d, sum: %d\n", res, sum);
+    return res;
 }
