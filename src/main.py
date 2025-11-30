@@ -7,14 +7,21 @@ from errors import CompilationError
 
 
 if __name__ == "__main__":
-    try:
+    # try:
         print("--------- Lexer ---------")
         lexer = LexicalAnalyzer()
         text = """
-int main() {
-    printf("Hello, World!\\n");
+int main(int argc, char** argv) {
+    int a = 5;
+    if(a > 0) {
+        a = a - 1;
+    } else {
+        a = a + 1;
+    }
     return 0;
 }
+
+
 """
         # text = """result = (x += y * (z >> 2)) & ((flag ? *p++ : -q) & 0xFF);"""
         # text = """(x + y * (z >> 2)) & ((flag ? *p++ : -q) & 0xFF)"""
@@ -33,7 +40,7 @@ int main() {
         tree = syn.analyze()
         print(tree)
 
-        # semantic = SemanticAnalyzer()
+        semantic = SemanticAnalyzer()
         # semantic.global_scope = {
         #     "result" : "int",
         #     "x" : "int",
@@ -43,24 +50,24 @@ int main() {
         #     "p" : "int*",
         #     "q" : "int",
         # }
-        # print("--------- Semantic Analysis ---------")
+        print("--------- Semantic Analysis ---------")
 
-        # semantic.analyze(tree)
+        semantic.analyze(tree)
 
-        # print("Passed semantic analysis")
+        print("Passed semantic analysis")
 
-        # gen = IntermediateCodeGenerator()
-        # gen.global_scope = {
-        #     "result" : "int",
-        #     "x" : "int",
-        #     "y" : "int",
-        #     "z" : "int",
-        #     "flag" : "bool",
-        #     "p" : "int*",
-        #     "q" : "int",
-        # }
+        gen = IntermediateCodeGenerator()
+        gen.global_scope = {
+            "result" : "int",
+            "x" : "int",
+            "y" : "int",
+            "z" : "int",
+            "flag" : "bool",
+            "p" : "int*",
+            "q" : "int",
+        }
 
-        # generated = gen.generate(tree)[0]
+        generated = gen.generate(tree)[0]
 
         # s = ",\t"
         # print("--------- Intermediate Code ---------")
@@ -72,7 +79,7 @@ int main() {
         # print("------------ Final --------------")
         # final_gen = FinalAssemblyGenerator()
         # print("\n".join(final_gen.generate(optimized)))
-    except CompilationError as ce:
-        print(str(ce))
-    except Exception as e:
-        print("Unhandled exception:", str(e))
+    # except CompilationError as ce:
+    #     print(str(ce))
+    # except Exception as e:
+    #     print("Unhandled exception:", str(e))
