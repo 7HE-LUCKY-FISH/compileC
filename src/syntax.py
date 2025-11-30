@@ -36,7 +36,6 @@ class SyntaxTree:
         self.token = token
     
     def __str__(self):
-        print(self.type)
         return f"SyntaxTreeNode(id={self.id}, type={SyntaxTree.NAME[self.type]}, expression_type={str(self.expression_type)}, value={self.value}, children={",".join([str(i.id) if i is not None else "None" for i in self.children])})" + ("\n" if len(self.children) > 0 else "") +  "\n".join([str(i) for i in self.children])
     
     def __repr__(self):
@@ -94,7 +93,7 @@ class CType:
     
 class VariableDeclaration(SyntaxTree):
     def __init__(self, identifier:str, type:CType, token:Token):
-        super().__init__(SyntaxTree.TYPE_DECLARATION, [], 0, token)
+        super().__init__(SyntaxTree.TYPE_DECLARATION, 0, 0, token)
         self.identifier = identifier
         self.declared_type = type
         
@@ -105,7 +104,7 @@ class VariableDeclaration(SyntaxTree):
             
 class FunctionDeclaration(SyntaxTree):
     def __init__(self, identifier:str, return_type:CType, parameters:list[CType], token:Token):
-        super().__init__(SyntaxTree.FUNCTION_DECLARATION, [], 0, token)
+        super().__init__(SyntaxTree.FUNCTION_DECLARATION, 0, 0, token)
         self.identifier = identifier
         self.return_type = return_type
         self.parameters = parameters
@@ -114,6 +113,12 @@ class FunctionDeclaration(SyntaxTree):
         return f"FunctionDeclaration(id={self.id}, name={self.identifier}, parameters=[{",".join([str(typ) for typ in self.parameters])}], return_type={str(self.return_type)})"
     def __repr__(self):
         return self.__str__()
+    
+
+class BlockStatement(SyntaxTree):
+    def __init__(self, statements:SyntaxTree, token:Token):
+        super().__init__(SyntaxTree.BLOCK_STATEMENT, 0, 0, token)
+        self.children = statements
     
 
 class SyntaticAnalyzer:
@@ -218,10 +223,8 @@ class SyntaticAnalyzer:
             
             k = self._first_outside_parenthesis(",", i, j)
             if(k == -1):
-                print(i, j)
                 out += [self._parse_assignment(i, j)]
                 return out
-            print(i, k)
             out += [self._parse_assignment(i, k)]
             i = k + 1
     
@@ -509,16 +512,16 @@ class SyntaticAnalyzer:
         points = []
         stack = 0
         for k in range(start, end):
-            if self.tokens[k].type in ["(", "[", "{"]: stack += 1
-            elif self.tokens[k].type in [")", "]", "}"]: stack -= 1
+            if self.tokens[k].value in ["(", "[", "{"]: stack += 1
+            elif self.tokens[k].value in [")", "]", "}"]: stack -= 1
             
-            if stack == 0 and self.tokens[k].type == delimiter:
+            if stack == 0 and self.tokens[k].value == delimiter:
                 points.append(k)
         return points
 
     def _parse_while(self, i, j):
         open_paren = i + 1
-        close_paren = self._find_matching_parenthesis(open_paren, j)
+        close_paren = self.parenthesis_skip_list[i+1]
         
         if close_paren == -1:
             raise SyntaxError(f"Missing closing parenthesis in while loop at line {self.tokens[i].value}")
@@ -532,43 +535,63 @@ class SyntaticAnalyzer:
 
     def _parse_for(self, i, j):
         open_paren = i + 1
-        close_paren = self._find_matching_parenthesis(open_paren, j)
+        close_paren = self.parenthesis_skip_list[i+1]
         
-        if close_paren == -1:
-            raise SyntaxError(f"Missing closing parenthesis in for loop at line {self.tokens[i].value}")
         semi_locs = self._find_split_points(open_paren + 1, close_paren, ";")
         
         if len(semi_locs) != 2:
-            raise SyntaxError(f"Invalid for-loop syntax. Expected 'for(init; cond; update)' at line {self.tokens[i].value}")
+            raise SyntaxError(f"Invalid for-loop syntax. Expected 'for(init; cond; update)' at line {self.tokens[i].line}")
 
-        init_tree = self._parse_expression(open_paren + 1, semi_locs.type)
-        cond_tree = self._parse_expression(semi_locs.type + 1, semi_locs.type)
-        update_tree = self._parse_expression(semi_locs.type + 1, close_paren)
+        if(self._is_token_a_type(self.tokens[open_paren + 1])):
+            init_tree = BlockStatement(self._parse_declaration(open_paren + 1, semi_locs[0]), self.tokens[open_paren + 1])
+        else:
+            init_tree = self._parse_expression(open_paren + 1, semi_locs[0])
+            
+        cond_tree = self._parse_expression(semi_locs[0] + 1, semi_locs[1])
+        
+        update_tree = self._parse_expression(semi_locs[1] + 1, close_paren)
         
         body_tree = self._parse_statement(close_paren + 1, j)
 
         tree = SyntaxTree(SyntaxTree.FOR_STATEMENT, "for", self.tokens[i].value)
         tree.children = [init_tree, cond_tree, update_tree, body_tree]
         return tree
-        
+    
+    
+    def _parse_block(self, i: int, j: int):
+        statements = []
+        last_statement_start = i
+        while(i < j):
+            if(self.parenthesis_skip_list[i] != -1):
+                i = self.parenthesis_skip_list[i]
+            
+            if(self.tokens[i].value == ";" or self.tokens[i].value == "}"):
+                statements.append(self._parse_statement(last_statement_start, i+1))
+                last_statement_start = i + 1
+            
+            i += 1
+
+        return BlockStatement(statements, self.tokens[i])
 
     def _parse_statement(self, i, j):
         if i >= j:
             return None
 
-        if self.tokens[i].type == "{":
-            return self._parse_statement(i + 1, j - 1)
-
-        if self.tokens[i].type == "while":
+        if self.tokens[i].value == "{" and self.parenthesis_skip_list[self.parenthesis_skip_list[i]] == i:
+            return self._parse_block(i + 1, j - 1)
+        
+        if self.tokens[i].value == "while":
             return self._parse_while(i, j)
         
-        if self.tokens[i].type == "for":
+        if self.tokens[i].value == "for":
             return self._parse_for(i, j)
-        
-        if j > i and self.tokens[j-1].type == ";":
+    
+        if(self.tokens[j-1].value == ";"):
+            if self._is_token_a_type(self.tokens[i]):
+                return self._parse_declaration(i, j - 1)
             return self._parse_expression(i, j-1)
 
-        return self._parse_expression(i, j)
+        raise CompilerSyntaxError("Unexpected token when parsing statement.", self.tokens[i].line, self.tokens[i])
     
 
     def _is_token_a_type(self, token:Token):
@@ -704,7 +727,6 @@ class SyntaticAnalyzer:
                         raise CompilerSyntaxError("Missing type in function parameter declaration", self.tokens[i-1].line, self.tokens[i-1])
                 
                 case 5:
-                    print(curr)
                     if(self._is_token_a_type(curr)):
                         state = 5
                         parameter_types.append(curr)
@@ -805,8 +827,6 @@ class SyntaticAnalyzer:
                             break
                         i += 1
 
-                        
-                    print(expression_start, i)
                     statements.append(self._parse_expression(expression_start, i))
             i += 1
         
