@@ -271,6 +271,18 @@ class IntermediateCodeGenerator:
                 code += c
             return code, None, None
 
+        if(tree.type == SyntaxTree.EXTERNAL_BLOCK):
+            code = []
+            for child in tree.children:
+                c, _, _ = self.generate(child)
+                code += c
+            return code, None, None
+
+        
+        if(tree.type == SyntaxTree.FUNCTION_DEFINITION):
+            code, _, _ = self.generate(tree.body)
+            return code, None, None
+            
 
 
 class IntermediateCodeGeneratorOptimizer:
