@@ -12,13 +12,16 @@ class SyntaxTree:
     FOR_STATEMENT = 4
     BLOCK_STATEMENT = 5
 
-    NAME = ["EXPRESSION", "IDENTIFIER", "NUMERIC_LITERAL","WHILE", "FOR", "BLOCK"]
+    TYPE_DECLARATION = 6
+    FUNCTION_DECLARATION = 7
+
+    NAME = ["EXPRESSION", "IDENTIFIER", "NUMERIC_LITERAL","WHILE", "FOR", "BLOCK", "TYPE_DECL", "FUNC_DECL"]
 
     _id = 0
 
 
 
-    def __init__(self, typ, expression_type, line=0):
+    def __init__(self, typ, expression_type, line=0, token=None):
         self.children = []
         self.type = typ
         self.expression_type = expression_type
@@ -29,11 +32,89 @@ class SyntaxTree:
         SyntaxTree._id += 1
 
         self.data_type = None
+        
+        self.token = token
     
     def __str__(self):
-        return str(self.id) + " " + SyntaxTree.NAME[self.type] + " " + str(self.expression_type) + " " + ",".join([str(i.id) if i is not None else "None" for i in self.children]) + "\n" + "\n".join([str(i) for i in self.children])
+        print(self.type)
+        return f"SyntaxTreeNode(id={self.id}, type={SyntaxTree.NAME[self.type]}, expression_type={str(self.expression_type)}, value={self.value}, children={",".join([str(i.id) if i is not None else "None" for i in self.children])})" + ("\n" if len(self.children) > 0 else "") +  "\n".join([str(i) for i in self.children])
+    
+    def __repr__(self):
+        return self.__str__()
 
+class Expression(SyntaxTree):
+    def __init__(self, expression_type:str, children: list, token: Token):
+        super().__init__(SyntaxTree.EXPRESSION, expression_type, 0, token)
+        self.expression_type = expression_type
+        
+        self.children : list[Expression] = children
 
+class UnaryOperation(Expression):
+    def __init__(self, expression_type:str, operand: Expression, token: Token):
+        super().__init__(expression_type, [operand], token)
+class BinaryOperation(Expression):
+    def __init__(self, expression_type:str, operandL: Expression, operandR: Expression, token: Token):
+        super().__init__(expression_type, [operandL, operandR], token)
+
+class AssignmentOperation(Expression):
+    def __init__(self, expression_type:str, location: Expression, value: Expression, token: Token):
+        super().__init__(expression_type, [location, value], token)
+    
+class ArrayDereference(Expression):
+    def __init__(self, pointer: Expression, index: Expression, token: Token):
+        super().__init__("ARRAY_DEREFERENCE", [], token)
+        self.pointer = pointer
+        self.index = index
+
+class FunctionCall(Expression):
+    def __init__(self, function_name:Expression, parameters: list[Expression], token: Token):
+        super().__init__("FUNCTION_CALL", [function_name] + parameters, token)
+        self.function_name = function_name
+        self.parameters = parameters
+
+class Identifier(SyntaxTree):
+    def __init__(self, identifier:str, token:Token):
+        super().__init__(SyntaxTree.IDENTIFIER, [], 0, token)
+        self.value = identifier
+        self.identifier = identifier
+class StructReference(Expression):
+    def __init__(self, expression_type:str, operand: Expression, member: Identifier, token: Token):
+        super().__init__(expression_type, [operand, member], token)
+
+class CType:
+    def __init__(self, base:str, pointer_count:int):
+        self.base = base
+        self.pointer_count = pointer_count
+    
+    def __str__(self):
+        return f"{self.base}{"*"*self.pointer_count}"
+    
+    def __repr__(self):
+        return f"CType({self.__str__()})"
+    
+class VariableDeclaration(SyntaxTree):
+    def __init__(self, identifier:str, type:CType, token:Token):
+        super().__init__(SyntaxTree.TYPE_DECLARATION, [], 0, token)
+        self.identifier = identifier
+        self.declared_type = type
+        
+    def __str__(self):
+        return f"VariableDeclaration(id={self.id}, name={self.identifier}, type={str(self.declared_type)})"
+    def __repr__(self):
+        return self.__str__()
+            
+class FunctionDeclaration(SyntaxTree):
+    def __init__(self, identifier:str, return_type:CType, parameters:list[CType], token:Token):
+        super().__init__(SyntaxTree.FUNCTION_DECLARATION, [], 0, token)
+        self.identifier = identifier
+        self.return_type = return_type
+        self.parameters = parameters
+    
+    def __str__(self):
+        return f"FunctionDeclaration(id={self.id}, name={self.identifier}, parameters=[{",".join([str(typ) for typ in self.parameters])}], return_type={str(self.return_type)})"
+    def __repr__(self):
+        return self.__str__()
+    
 
 class SyntaticAnalyzer:
     STATEMENT = 0
@@ -68,438 +149,689 @@ class SyntaticAnalyzer:
 
     OTHER = -1
 
-    def _is_keyword(self, tokens : List[Tuple[str, int, int]], i = 0, keyword : str | None = None):
-        if(tokens[i].type != LexicalAnalyzer.KEYWORD):
+    def _is_keyword(self, i = 0, keyword : str | None = None):
+        if(self.tokens[i].type != LexicalAnalyzer.KEYWORD):
             return False
-        return tokens[i].value == keyword if keyword != None else True
+        return self.tokens[i].value == keyword if keyword != None else True
 
-    def _is_operator(self, tokens : List[Tuple[str, int, int]], i = 0, operator : str | None = None):
-        if(tokens[i].type != LexicalAnalyzer.OPERATOR):
+    def _is_operator(self, i = 0, operator : str | None = None):
+        if(self.tokens[i].type != LexicalAnalyzer.OPERATOR):
             return False
-        return tokens[i].value == operator if operator != None else True
+        return self.tokens[i].value == operator if operator != None else True
 
-    def _analyze_if_self(self, tokens : List[Tuple[str, int, int]], i = 0):
-        if(self._is_keyword(tokens, i, "if")):
+    def _analyze_if_self(self, i = 0):
+        if(self._is_keyword(i, "if")):
             pass
     
-    def _first_outside_parenthesis(self, tokens : List[Tuple[str, int, int]], matches, i = 0, j = -1, ):
-        j = len(tokens) if j == -1 else j
-
-        sta = []
+    def _first_outside_parenthesis(self, matches: List[str], i = 0, j = -1) -> int:
+        j = len(self.tokens) if j == -1 else j
 
         while(i < j):
-            curr = tokens[i]
-            if(curr.type in matches and len(sta) == 0):
+            curr = self.tokens[i]
+            
+            if(self.parenthesis_skip_list[i] != -1):
+                i = self.parenthesis_skip_list[i]
+            elif(curr.value in matches):
                 return i
-            if(curr.type == "(" and curr.type == LexicalAnalyzer.SEPARATOR):
-                sta.append(0)
-            elif(curr.type == "[" and curr.type == LexicalAnalyzer.SEPARATOR):
-                sta.append(1)
-            elif(curr.type == "{" and curr.type == LexicalAnalyzer.SEPARATOR):
-                sta.append(2)
-            elif(curr.type == ")" and curr.type == LexicalAnalyzer.SEPARATOR):
-                if(len(sta) == 0 or sta[-1] != 0):
-                    return -1
-                sta.pop()
-            elif(curr.type == "]" and curr.type == LexicalAnalyzer.SEPARATOR):
-                if(len(sta) == 0 or sta[-1] != 1):
-                    return -1
-                sta.pop()
-            elif(curr.type == "}" and curr.type == LexicalAnalyzer.SEPARATOR):
-                if(len(sta) == 0 or sta[-1] != 2):
-                    return -1
-                sta.pop()
+            
             i += 1
         return -1
     
-    def _last_outside_parenthesis(self, tokens : List[Token], matches, i = 0, j = -1):
-        j = len(tokens) - 1 if j == -1 else j - 1
-
-        sta = []
+    def _last_outside_parenthesis(self, matches, i = 0, j = -1) -> int:
+        j = len(self.tokens) - 1 if j == -1 else j - 1
 
         while(i <= j):
-            curr = tokens[j]
-            if(curr.type in matches and len(sta) == 0):
+            curr = self.tokens[j]
+            
+            if(self.parenthesis_skip_list[j] != -1):
+                j = self.parenthesis_skip_list[i]
+            elif(curr.value in matches):
                 return j
-            if(curr.type == ")" and curr.type == LexicalAnalyzer.SEPARATOR):
-                sta.append(0)
-            elif(curr.type == "]" and curr.type == LexicalAnalyzer.SEPARATOR):
-                sta.append(1)
-            elif(curr.type == "}" and curr.type == LexicalAnalyzer.SEPARATOR):
-                sta.append(2)
-            elif(curr.type == "(" and curr.type == LexicalAnalyzer.SEPARATOR):
-                if(len(sta) == 0 or sta[-1] != 0):
-                    return -1
-                sta.pop()
-            elif(curr.type == "[" and curr.type == LexicalAnalyzer.SEPARATOR):
-                if(len(sta) == 0 or sta[-1] != 1):
-                    return -1
-                sta.pop()
-            elif(curr.type == "{" and curr.type == LexicalAnalyzer.SEPARATOR):
-                if(len(sta) == 0 or sta[-1] != 2):
-                    return -1
-                sta.pop()
+            
             j -= 1
         return -1
 
-    def _parse_primary(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
+    def _parse_primary(self, i = 0, j = -1):
         if(i == j) :
-            prev_line = tokens[i-1].value if i > 0 else 0
+            prev_line = self.tokens[i-1].value if i > 0 else 0
             raise CompilationError("Expected expression", prev_line)
         
 
         if(j - i > 1):
-            if(tokens[i].type == "(" and tokens[j-1].type == ")"):
-                return self._parse_expression(tokens, i + 1, j - 1)
+            if(self.tokens[i].value == "(" and self.tokens[j-1].value == ")" and self.parenthesis_skip_list[self.parenthesis_skip_list[i]] == i):
+                return self._parse_expression(i + 1, j - 1)
         else:
-            if(tokens[i].type == LexicalAnalyzer.HEX_LITERAL):
-                a = SyntaxTree(SyntaxTree.NUMERIC_LITERAL, tokens[i].type, tokens[i].value)
-                a.value = str(int(tokens[i].type[2:], base=16))
+            if(self.tokens[i].type == LexicalAnalyzer.HEX_LITERAL):
+                a = SyntaxTree(SyntaxTree.NUMERIC_LITERAL, self.tokens[i].type, self.tokens[i].value)
+                a.value = str(int(self.tokens[i].value[2:], base=16))
                 return a
-            if(tokens[i].type == LexicalAnalyzer.NUM_LITERAL):
-                a = SyntaxTree(SyntaxTree.NUMERIC_LITERAL, tokens[i].type, tokens[i].value)
-                a.value = str(int(tokens[i].type, base=16))
+            if(self.tokens[i].type == LexicalAnalyzer.NUM_LITERAL):
+                a = SyntaxTree(SyntaxTree.NUMERIC_LITERAL, self.tokens[i].type, self.tokens[i].value)
+                a.value = str(int(self.tokens[i].value, base=16))
                 return a
 
-            return SyntaxTree(SyntaxTree.IDENTIFIER, tokens[i].type, tokens[i].value)
-        
-    def _parse_postfix(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
+            return Identifier(self.tokens[i].value, self.tokens[i])
+    
+    def _parse_expression_list(self, i = 0, j = -1) -> List[Expression]:
+        out = []
+        while(i < j):
+            
+            k = self._first_outside_parenthesis(",", i, j)
+            if(k == -1):
+                print(i, j)
+                out += [self._parse_assignment(i, j)]
+                return out
+            print(i, k)
+            out += [self._parse_assignment(i, k)]
+            i = k + 1
+    
+    def _parse_postfix(self, i = 0, j = -1):
         if(j - i > 1):
-            operator = tokens[j-1].type
+            operator = self.tokens[j-1].value
             if(operator in ["++", "--"]):
-                new_tree = SyntaxTree(SyntaxTree.EXPRESSION, operator, tokens[j-1].value)
-                new_tree.children = [
-                    self._parse_postfix(tokens, i, j-1),
-                ]
-                return new_tree
+                return UnaryOperation(
+                    operator,
+                    self._parse_postfix(i, j-1),
+                    self.tokens[j-1]
+                )
             if(operator == "]"):
-                operator_location = self._last_outside_parenthesis(tokens, ["["], i, j-1)
-                if(operator_location != i):
-                    new_tree = SyntaxTree(SyntaxTree.EXPRESSION, "[]", tokens[j-1].value)
-                    new_tree.children = [
-                        self._parse_postfix(tokens, i, operator_location),
-                        self._parse_expression(tokens, operator_location + 1, j - 1)
-                    ]
-                    return new_tree
+                operator_location = self.parenthesis_skip_list[j-1]
+                return ArrayDereference(
+                    self._parse_postfix(i, operator_location),
+                    self._parse_expression(operator_location + 1, j - 1),
+                    self.tokens[j-1]
+                )
 
             if(operator == ")"):
-                operator_location = self._last_outside_parenthesis(tokens, ["("], i, j-1)
-                if(operator_location != i):
-                    new_tree = SyntaxTree(SyntaxTree.EXPRESSION, "()", tokens[j-1].value)
-                    new_tree.children = [
-                        self._parse_postfix(tokens, i, operator_location),
-                        self._parse_expression(tokens, operator_location + 1, j - 1)
-                    ]
-                    return new_tree
-            
+                operator_location = self.parenthesis_skip_list[j-1]
+                
+                if(operator_location == i):
+                    return self._parse_primary(i, j)
+                    
+                
+                return FunctionCall(
+                    self._parse_postfix(i, operator_location),
+                    self._parse_expression_list(operator_location + 1, j - 1),
+                    self.tokens[j-1]
+                )
 
         if(j - i > 2):
-            operator = tokens[j-2].type
-            if(operator in ["->", "*"] and j-2 != i):
-                new_tree = SyntaxTree(SyntaxTree.EXPRESSION, operator, tokens[j-2].value)
+            operator = self.tokens[j-2].value
+            if(operator in ["->"] and j-2 != i):
+                new_tree = SyntaxTree(SyntaxTree.EXPRESSION, operator, self.tokens[j-2].value)
                 new_tree.children = [
-                    self._parse_postfix(tokens, i, j-2),
-                    SyntaxTree(SyntaxTree.IDENTIFIER, tokens[j-1])
+                    self._parse_postfix(i, j-2),
+                    SyntaxTree(SyntaxTree.IDENTIFIER, self.tokens[j-1])
                 ]
                 return new_tree
 
-        return self._parse_primary(tokens, i, j)
+        return self._parse_primary(i, j)
 
-    def _parse_unary(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
-        if(tokens[i].type in ["++", "--", "-", "+", "!", "~", "*", "&", "sizeof"]):
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[i].type+"_pre", tokens[i].value)
-            new_tree.children = [
-                self._parse_unary(tokens, i + 1, j),
-            ]
-            return new_tree
+    def _parse_unary(self, i = 0, j = -1):
+        if(self.tokens[i].value in ["++", "--", "-", "+", "!", "~", "*", "&", "sizeof"]):
+            return UnaryOperation(
+                self.tokens[i].value+"_pre",
+                self._parse_unary(i + 1, j),
+                self.tokens[i]
+            )
         
-        return self._parse_postfix(tokens, i, j)
+        return self._parse_postfix(i, j)
     
-    def _parse_pointer_to_member(self, tokens : List[Token], i = 0, j = -1):
-        operator_location = self._last_outside_parenthesis(tokens, ["->*", ".*"], i, j)
-        if(operator_location != -1 and operator_location != i):
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location].type)
-            new_tree.children = [
-                self._parse_pointer_to_member(tokens, i, operator_location),
-                self._parse_unary(tokens, operator_location+1, j)
-            ]
-            return new_tree
+    # def _parse_pointer_to_member(self, i = 0, j = -1):
+    #     operator_location = self._last_outside_parenthesis(["->*", ".*"], i, j)
+    #     if(operator_location != -1 and operator_location != i):
+    #         new_tree = SyntaxTree(SyntaxTree.EXPRESSION, self.tokens[operator_location].type)
+    #         new_tree.children = [
+    #             self._parse_pointer_to_member(i, operator_location),
+    #             self._parse_unary(operator_location+1, j)
+    #         ]
+    #         return new_tree
 
-        return self._parse_unary(tokens, i, j)
-    def _parse_multiplicative(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
-        operator_location = self._last_outside_parenthesis(tokens, ["*", "/"], i, j)
+    #     return self._parse_unary(i, j)
+    def _parse_multiplicative(self, i = 0, j = -1):
+        operator_location = self._last_outside_parenthesis(["*", "/"], i, j)
         if(operator_location != -1 and operator_location != i):
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location].type, tokens[operator_location].value)
-            new_tree.children = [
-                self._parse_multiplicative(tokens, i, operator_location),
-                self._parse_pointer_to_member(tokens, operator_location+1, j)
-            ]
-            return new_tree
+            token = self.tokens[operator_location]
+            return BinaryOperation(
+                token.value, 
+                self._parse_multiplicative(i, operator_location),
+                self._parse_unary(operator_location+1, j),
+                # self._parse_pointer_to_member(operator_location+1, j),
+                token)
 
-        return self._parse_pointer_to_member(tokens, i, j)
+        return self._parse_unary(i, j)
+        # return self._parse_pointer_to_member(i, j)
     
-    def _parse_additive(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
-        operator_location = self._last_outside_parenthesis(tokens, ["+", "-"], i, j)
+    def _parse_additive(self, i = 0, j = -1):
+        operator_location = self._last_outside_parenthesis(["+", "-"], i, j)
 
         if(operator_location != -1 and operator_location != i):
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location].type, tokens[operator_location].value)
-            new_tree.children = [
-                self._parse_additive(tokens, i, operator_location),
-                self._parse_multiplicative(tokens, operator_location+1, j)
-            ]
-            return new_tree
+            token = self.tokens[operator_location]
+            return BinaryOperation(
+                token.value, 
+                self._parse_additive(i, operator_location),
+                self._parse_multiplicative(operator_location+1, j),
+                token)
         
-        return self._parse_multiplicative(tokens, i, j)
+        return self._parse_multiplicative(i, j)
         
-    def _parse_shift(self, tokens : List[Token], i = 0, j = -1):
-        operator_location = self._last_outside_parenthesis(tokens, ["<<", ">>"], i, j)
-        if(operator_location != -1 and operator_location != i):
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location].type)
-            new_tree.children = [
-                self._parse_shift(tokens, i, operator_location),
-                self._parse_additive(tokens, operator_location+1, j)
-            ]
-            return new_tree
-        
-        return self._parse_additive(tokens, i, j)
-    
-    def _parse_three_way_compare(self, tokens : List[Token], i = 0, j = -1):
-        operator_location = self._last_outside_parenthesis(tokens, ["<=>"], i, j)
-        if(operator_location != -1 and operator_location != i):
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location].type)
-            new_tree.children = [
-                self._parse_three_way_compare(tokens, i, operator_location),
-                self._parse_shift(tokens, operator_location+1, j)
-            ]
-            return new_tree
-        
-        return self._parse_shift(tokens, i, j)
-    
-    def _parse_relational_compare(self, tokens : List[Token], i = 0, j = -1):
-        operator_location = self._last_outside_parenthesis(tokens, ["<", ">", "<=", ">="], i, j)
-        if(operator_location != -1 and operator_location != i):
-
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location].type)
-            new_tree.children = [
-                self._parse_relational_compare(tokens, i, operator_location),
-                self._parse_three_way_compare(tokens, operator_location+1, j)
-            ]
-            return new_tree
-        
-        return self._parse_three_way_compare(tokens, i, j)
-        
-    def _parse_equality_compare(self, tokens : List[Token], i = 0, j = -1):
-        operator_location = self._last_outside_parenthesis(tokens, ["==", "!="], i, j)
+    def _parse_shift(self, i = 0, j = -1):
+        operator_location = self._last_outside_parenthesis(["<<", ">>"], i, j)
         if(operator_location != -1):
-            if(operator_location == i): 
-                raise SyntaxError()
+            token = self.tokens[operator_location]
             
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location].type)
-            new_tree.children = [
-                self._parse_equality_compare(tokens, i, operator_location),
-                self._parse_relational_compare(tokens, operator_location+1, j)
-            ]
-            return new_tree
+            if(operator_location == i):
+                raise CompilerSyntaxError(f"Missing operand for {token.value}", token.line, token)
+            
+            return BinaryOperation(
+                token.value, 
+                self._parse_shift(i, operator_location),
+                self._parse_additive(operator_location+1, j),
+                token)
         
-        return self._parse_relational_compare(tokens, i, j)
+        return self._parse_additive(i, j)
+    
+    def _parse_three_way_compare(self, i = 0, j = -1):
+        operator_location = self._last_outside_parenthesis(["<=>"], i, j)
+        if(operator_location != -1):
+            token = self.tokens[operator_location]
+            
+            if(operator_location == i):
+                raise CompilerSyntaxError(f"Missing operand for {token.value}", token.line, token)
+            
+            return BinaryOperation(
+                token.value, 
+                self._parse_three_way_compare(i, operator_location),
+                self._parse_shift(operator_location+1, j),
+                token)
         
-    def _parse_bitwise_and(self, tokens : List[Token], i = 0, j = -1):
-        operator_location = self._last_outside_parenthesis(tokens, ["&"], i, j)
+        return self._parse_shift(i, j)
+    
+    def _parse_relational_compare(self, i = 0, j = -1):
+        operator_location = self._last_outside_parenthesis(["<", ">", "<=", ">="], i, j)
+        if(operator_location != -1):
+            token = self.tokens[operator_location]
+            
+            if(operator_location == i):
+                raise CompilerSyntaxError(f"Missing operand for {token.value}", token.line, token)
+            
+            return BinaryOperation(
+                token.value, 
+                self._parse_relational_compare(i, operator_location),
+                self._parse_three_way_compare(operator_location+1, j),
+                token)
+        
+        return self._parse_three_way_compare(i, j)
+        
+    def _parse_equality_compare(self, i = 0, j = -1):
+        operator_location = self._last_outside_parenthesis(["==", "!="], i, j)
+        if(operator_location != -1):
+            token = self.tokens[operator_location]
+            
+            if(operator_location == i):
+                raise CompilerSyntaxError(f"Missing operand for {token.value}", token.line, token)
+            
+            return BinaryOperation(
+                token.value, 
+                self._parse_equality_compare(i, operator_location),
+                self._parse_relational_compare(operator_location+1, j),
+                token)
+        
+        return self._parse_relational_compare(i, j)
+        
+    def _parse_bitwise_and(self, i = 0, j = -1):
+        operator_location = self._last_outside_parenthesis(["&"], i, j)
         if(operator_location != -1 and operator_location != i):
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location].type)
-            new_tree.children = [
-                self._parse_bitwise_and(tokens, i, operator_location),
-                self._parse_equality_compare(tokens, operator_location+1, j)
-            ]
-            return new_tree
+            token = self.tokens[operator_location]
+            return BinaryOperation(
+                token.value, 
+                self._parse_bitwise_and(i, operator_location),
+                self._parse_equality_compare(operator_location+1, j),
+                token)
         
-        return self._parse_equality_compare(tokens, i, j)
+        return self._parse_equality_compare(i, j)
         
-    def _parse_bitwise_xor(self, tokens : List[Token], i = 0, j = -1):
-        operator_location = self._last_outside_parenthesis(tokens, ["^"], i, j)
+    def _parse_bitwise_xor(self, i = 0, j = -1):
+        operator_location = self._last_outside_parenthesis(["^"], i, j)
         if(operator_location != -1):
-            if(operator_location == i): 
-                raise SyntaxError()
+            token = self.tokens[operator_location]
             
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location].type)
-            new_tree.children = [
-                self._parse_bitwise_xor(tokens, i, operator_location),
-                self._parse_bitwise_and(tokens, operator_location+1, j)
-            ]
-            return new_tree
-
-        return self._parse_bitwise_and(tokens, i, j)
-    def _parse_bitwise_or(self, tokens : List[Token], i = 0, j = -1):
-        operator_location = self._last_outside_parenthesis(tokens, ["|"], i, j)
-        if(operator_location != -1):
-            if(operator_location == i): 
-                raise SyntaxError()
+            if(operator_location == i):
+                raise CompilerSyntaxError(f"Missing operand for {token.value}", token.line, token)
             
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location].type)
-            new_tree.children = [
-                self._parse_bitwise_or(tokens, i, operator_location),
-                self._parse_bitwise_xor(tokens, operator_location+1, j)
-            ]
-            return new_tree
-
-        return self._parse_bitwise_xor(tokens, i, j)
-    def _parse_logical_and(self, tokens : List[Token], i = 0, j = -1):
-        operator_location = self._last_outside_parenthesis(tokens, ["&&"], i, j)
-        if(operator_location != -1):
-            if(operator_location == i): 
-                raise SyntaxError()
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location].type)
-            new_tree.children = [
-                self._parse_logical_and(tokens, i, operator_location),
-                self._parse_bitwise_or(tokens, operator_location+1, j)
-            ]
-            return new_tree
-
-        return self._parse_bitwise_or(tokens, i, j)
+            return BinaryOperation(
+                token.value, 
+                self._parse_bitwise_xor(i, operator_location),
+                self._parse_bitwise_and(operator_location+1, j),
+                token)
+        return self._parse_bitwise_and(i, j)
     
-    def _parse_logical_or(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
-        operator_location = self._last_outside_parenthesis(tokens, ["||"], i, j)
+    def _parse_bitwise_or(self, i = 0, j = -1):
+        operator_location = self._last_outside_parenthesis(["|"], i, j)
         if(operator_location != -1):
-            if(operator_location == i): 
-                raise SyntaxError(f"Invalid logical or operator position at line {tokens[i].value}")
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location].type, tokens[operator_location].value)
-            new_tree.children = [
-                self._parse_logical_or(tokens, i, operator_location),
-                self._parse_logical_and(tokens, operator_location+1, j)
-            ]
-            return new_tree
+            token = self.tokens[operator_location]
+            
+            if(operator_location == i):
+                raise CompilerSyntaxError(f"Missing operand for {token.value}", token.line, token)
+            
+            return BinaryOperation(
+                token.value, 
+                self._parse_bitwise_or(i, operator_location),
+                self._parse_bitwise_xor(operator_location+1, j),
+                token)
 
-        return self._parse_logical_and(tokens, i, j)
+        return self._parse_bitwise_xor(i, j)
+    def _parse_logical_and(self, i = 0, j = -1):
+        operator_location = self._last_outside_parenthesis(["&&"], i, j)
+        if(operator_location != -1):
+            token = self.tokens[operator_location]
+            
+            if(operator_location == i):
+                raise CompilerSyntaxError(f"Missing operand for {token.value}", token.line, token)
+            
+            return BinaryOperation(
+                token.value, 
+                self._parse_logical_and(i, operator_location),
+                self._parse_bitwise_or(operator_location+1, j),
+                token)
+
+        return self._parse_bitwise_or(i, j)
     
-    def _parse_conditional(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1) -> Tuple[SyntaxTree, Tuple[int, int]]:
+    def _parse_logical_or(self, i = 0, j = -1):
+        operator_location = self._last_outside_parenthesis(["||"], i, j)
+        if(operator_location != -1):
+            token = self.tokens[operator_location]
+            
+            if(operator_location == i):
+                raise CompilerSyntaxError(f"Missing operand for {token.value}", token.line, token)
+            
+            return BinaryOperation(
+                token.value, 
+                self._parse_logical_or(i, operator_location),
+                self._parse_logical_and(operator_location+1, j),
+                token)
+
+        return self._parse_logical_and(i, j)
+    
+    def _parse_conditional(self, i = 0, j = -1) -> Tuple[SyntaxTree, Tuple[int, int]]:
         
-        ternary_operator_location = self._first_outside_parenthesis(tokens, ["?"], i, j)
+        ternary_operator_location = self._first_outside_parenthesis(["?"], i, j)
         if(ternary_operator_location != -1):
-            ternary_tree = SyntaxTree(SyntaxTree.EXPRESSION, "?", tokens[ternary_operator_location].value)
-            tree = self._parse_logical_or(tokens, i, ternary_operator_location)
-            ternary_operator_else_location = self._first_outside_parenthesis(tokens, [":"], ternary_operator_location, j)
+            ternary_tree = SyntaxTree(SyntaxTree.EXPRESSION, "?", self.tokens[ternary_operator_location].value)
+            tree = self._parse_logical_or(i, ternary_operator_location)
+            ternary_operator_else_location = self._first_outside_parenthesis([":"], ternary_operator_location, j)
             ternary_tree.children.append(tree)
-            tree = self._parse_expression(tokens, ternary_operator_location + 1, ternary_operator_else_location)
+            tree = self._parse_expression(ternary_operator_location + 1, ternary_operator_else_location)
 
             if(ternary_operator_else_location == -1):
-                raise SyntaxError(f"Missing else in ternary operator at line {tokens[ternary_operator_location].value}")
+                raise SyntaxError(f"Missing else in ternary operator at line {self.tokens[ternary_operator_location].value}")
 
             ternary_tree.children.append(tree)
-            tree = self._parse_conditional(tokens, ternary_operator_else_location + 1, j)
+            tree = self._parse_conditional(ternary_operator_else_location + 1, j)
 
             ternary_tree.children.append(tree)
             return ternary_tree
 
-        return self._parse_logical_or(tokens, i, j)
+        return self._parse_logical_or(i, j)
 
-    def _parse_expression(self, tokens : List[Token], i = 0, j = -1):
-        return self._parse_assignment(tokens, i, j)
+    def _parse_expression(self, i = 0, j = -1):
+        return self._parse_assignment(i, j)
     
-    def _parse_assignment(self, tokens : List[Tuple[str, int, int]], i = 0, j = -1):
-        operator_location = self._first_outside_parenthesis(tokens, ["=", "+=", "-=", "*=", "/=", "~=", ">>=", "<<=", "^=", "%=", "&=", "|="], i, j)
-        if(operator_location != -1 and operator_location != j-1):
-            new_tree = SyntaxTree(SyntaxTree.EXPRESSION, tokens[operator_location].type, tokens[operator_location].value)
-            new_tree.children = [
-                self._parse_unary(tokens, i, operator_location),
-                self._parse_assignment(tokens, operator_location+1, j)
-            ]
-            return new_tree
+    def _parse_assignment(self, i = 0, j = -1):
+        operator_location = self._first_outside_parenthesis(["=", "+=", "-=", "*=", "/=", "~=", ">>=", "<<=", "^=", "%=", "&=", "|="], i, j)
+        if(operator_location != -1):
+            token = self.tokens[operator_location]
+            
+            if(operator_location == j-1):
+                raise CompilerSyntaxError(f"Missing operand for {token.value}", token.line, token)
+            
+            return AssignmentOperation(
+                token.value, 
+                self._parse_unary(i, operator_location),
+                self._parse_assignment(operator_location+1, j),
+                token)
 
-        return self._parse_conditional(tokens, i, j)
+        return self._parse_conditional(i, j)
 
 
-    def _find_matching_parenthesis(self, tokens, start_index, end_index):
+    def _find_matching_parenthesis(self, start_index, end_index):
         stack = 0
         for k in range(start_index, end_index):
-            if tokens[k].type == "(":
+            if self.tokens[k].value == "(":
                 stack += 1
-            elif tokens[k].type == ")":
+            elif self.tokens[k].value == ")":
                 stack -= 1
                 if stack == 0:
                     return k
         return -1
 
-    def _find_split_points(self, tokens, start, end, delimiter):
+    def _find_split_points(self, start, end, delimiter):
         points = []
         stack = 0
         for k in range(start, end):
-            if tokens[k].type in ["(", "[", "{"]: stack += 1
-            elif tokens[k].type in [")", "]", "}"]: stack -= 1
+            if self.tokens[k].type in ["(", "[", "{"]: stack += 1
+            elif self.tokens[k].type in [")", "]", "}"]: stack -= 1
             
-            if stack == 0 and tokens[k].type == delimiter:
+            if stack == 0 and self.tokens[k].type == delimiter:
                 points.append(k)
         return points
 
-    def _parse_while(self, tokens, i, j):
+    def _parse_while(self, i, j):
         open_paren = i + 1
-        close_paren = self._find_matching_parenthesis(tokens, open_paren, j)
+        close_paren = self._find_matching_parenthesis(open_paren, j)
         
         if close_paren == -1:
-            raise SyntaxError(f"Missing closing parenthesis in while loop at line {tokens[i].value}")
+            raise SyntaxError(f"Missing closing parenthesis in while loop at line {self.tokens[i].value}")
 
-        condition = self._parse_expression(tokens, open_paren + 1, close_paren)
-        body = self._parse_statement(tokens, close_paren + 1, j)
+        condition = self._parse_expression(open_paren + 1, close_paren)
+        body = self._parse_statement(close_paren + 1, j)
 
-        tree = SyntaxTree(SyntaxTree.WHILE_STATEMENT, "while", tokens[i].value)
+        tree = SyntaxTree(SyntaxTree.WHILE_STATEMENT, "while", self.tokens[i].value)
         tree.children = [condition, body]
         return tree
 
-    def _parse_for(self, tokens, i, j):
+    def _parse_for(self, i, j):
         open_paren = i + 1
-        close_paren = self._find_matching_parenthesis(tokens, open_paren, j)
+        close_paren = self._find_matching_parenthesis(open_paren, j)
         
         if close_paren == -1:
-            raise SyntaxError(f"Missing closing parenthesis in for loop at line {tokens[i].value}")
-        semi_locs = self._find_split_points(tokens, open_paren + 1, close_paren, ";")
+            raise SyntaxError(f"Missing closing parenthesis in for loop at line {self.tokens[i].value}")
+        semi_locs = self._find_split_points(open_paren + 1, close_paren, ";")
         
         if len(semi_locs) != 2:
-            raise SyntaxError(f"Invalid for-loop syntax. Expected 'for(init; cond; update)' at line {tokens[i].value}")
+            raise SyntaxError(f"Invalid for-loop syntax. Expected 'for(init; cond; update)' at line {self.tokens[i].value}")
 
-        init_tree = self._parse_expression(tokens, open_paren + 1, semi_locs.type)
-        cond_tree = self._parse_expression(tokens, semi_locs.type + 1, semi_locs.type)
-        update_tree = self._parse_expression(tokens, semi_locs.type + 1, close_paren)
+        init_tree = self._parse_expression(open_paren + 1, semi_locs.type)
+        cond_tree = self._parse_expression(semi_locs.type + 1, semi_locs.type)
+        update_tree = self._parse_expression(semi_locs.type + 1, close_paren)
         
-        body_tree = self._parse_statement(tokens, close_paren + 1, j)
+        body_tree = self._parse_statement(close_paren + 1, j)
 
-        tree = SyntaxTree(SyntaxTree.FOR_STATEMENT, "for", tokens[i].value)
+        tree = SyntaxTree(SyntaxTree.FOR_STATEMENT, "for", self.tokens[i].value)
         tree.children = [init_tree, cond_tree, update_tree, body_tree]
         return tree
         
 
-    def _parse_statement(self, tokens, i, j):
+    def _parse_statement(self, i, j):
         if i >= j:
             return None
 
-        if tokens[i].type == "{":
-            return self._parse_statement(tokens, i + 1, j - 1)
+        if self.tokens[i].type == "{":
+            return self._parse_statement(i + 1, j - 1)
 
-        if tokens[i].type == "while":
-            return self._parse_while(tokens, i, j)
+        if self.tokens[i].type == "while":
+            return self._parse_while(i, j)
         
-        if tokens[i].type == "for":
-            return self._parse_for(tokens, i, j)
+        if self.tokens[i].type == "for":
+            return self._parse_for(i, j)
         
-        if j > i and tokens[j-1].type == ";":
-            return self._parse_expression(tokens, i, j-1)
+        if j > i and self.tokens[j-1].type == ";":
+            return self._parse_expression(i, j-1)
 
-        return self._parse_expression(tokens, i, j)
+        return self._parse_expression(i, j)
     
 
-
-    def _analyze_parenthesis(self, tokens : List[Token], i = 0) -> List[int]:
-        j = len(tokens) if j == -1 else j
-        sta = []
-        out = [ j for j, _ in enumerate(tokens) ]
-
+    def _is_token_a_type(self, token:Token):
+        return token.type == LexicalAnalyzer.KEYWORD and token.value in [
+            "char",
+            "char8_t",
+            "char16_t",
+            "char32_t",
+            "double",
+            "float",
+            "int",
+            "long",
+            "short",
+            "wchar_t",
+        ]
+    
+    
+    def _is_token_a_pointer(self, token: Token):
+        return token.type == LexicalAnalyzer.OPERATOR and token.value in [
+            "*"
+        ]
+    def _is_token_a_identifier(self, token: Token):
+        return token.type == LexicalAnalyzer.IDENTIFIER
+    
+    def _is_token_a_open_parenthesis(self, token: Token):
+        return token.type == LexicalAnalyzer.SEPARATOR and token.value in [
+            "("
+        ]
+    def _is_token_a_closing_parenthesis(self, token: Token):
+        return token.type == LexicalAnalyzer.SEPARATOR and token.value in [
+            ")"
+        ]
+    def _is_token_a_comma(self, token: Token):
+        return token.type == LexicalAnalyzer.SEPARATOR and token.value in [
+            ","
+        ]
+    def _is_token_a_equal(self, token: Token):
+        return token.type == LexicalAnalyzer.OPERATOR and token.value in [
+            "="
+        ]
+    
+    
+    
+    
+    
+    
+    def _parse_declaration(self, i:int, j:int):
+        state = 0
+        _type = []
+        statements = []
+        pointer_count = 0
+        identifier : Token | None = None
+        
+        return_type : CType | None = None
+        
+        
+        parameter_list = []
+        parameter_types = []
+        parameter_pointer_count = 0
         while(i < j):
-            curr = tokens[i]
-            if(curr.type == "(" and curr.type == LexicalAnalyzer.SEPARATOR):
+            curr = self.tokens[i]
+            match(state):
+                case 0:
+                    if(self._is_token_a_type(curr)):
+                        _type.append(curr)
+                        state = 1
+                        pointer_count = 0
+                    else:
+                        raise CompilerSyntaxError("Missing type in declaration", self.tokens[i-1].line, self.tokens[i-1])
+                case 1:
+                    if(self._is_token_a_type(curr)):
+                        _type.append(curr)
+                        state = 1
+                    elif(self._is_token_a_pointer(curr)):
+                        pointer_count += 1
+                        state = 2
+                    elif(self._is_token_a_identifier(curr)):
+                        identifier = curr
+                        state = 3
+                    else:
+                        raise CompilerSyntaxError("Unexpected token in variable declaration", self.tokens[i-1].line, self.tokens[i-1])
+                case 2:
+                    if(self._is_token_a_pointer(curr)):
+                        pointer_count += 1
+                        state = 2
+                    elif(self._is_token_a_identifier(curr)):
+                        identifier = curr
+                        state = 3
+                    else:
+                        raise CompilerSyntaxError("Unexpected token in variable declaration", self.tokens[i-1].line, self.tokens[i-1])
+                case 3:
+                    if(self._is_token_a_open_parenthesis(curr)):
+                        return_type = CType(
+                                    " ".join([token.value for token in _type]),
+                                    pointer_count
+                                )
+                        state = 4
+                    elif(self._is_token_a_comma(curr)):
+                        statements.append(
+                            VariableDeclaration(
+                                identifier.value,
+                                CType(
+                                    " ".join([token.value for token in _type]),
+                                    pointer_count
+                                ),
+                                identifier
+                            )
+                        )
+                        state = 2
+                        pointer_count = 0
+                    elif(self._is_token_a_equal(curr)):
+                        
+                        statements.append(
+                            VariableDeclaration(
+                                identifier.value,
+                                CType(
+                                    " ".join([token.value for token in _type]),
+                                    pointer_count
+                                ),
+                                identifier
+                            )
+                        )
+                        state = 9
+                    else:
+                        raise CompilerSyntaxError("Unexpected token in variable declaration", self.tokens[i-1].line, self.tokens[i-1])
+                        
+                case 4:
+                    if(self._is_token_a_type(curr)):
+                        state = 5
+                        parameter_types = [curr]
+                        parameter_pointer_count = 0
+                    else:
+                        raise CompilerSyntaxError("Missing type in function parameter declaration", self.tokens[i-1].line, self.tokens[i-1])
+                
+                case 5:
+                    print(curr)
+                    if(self._is_token_a_type(curr)):
+                        state = 5
+                        parameter_types.append(curr)
+                    elif(self._is_token_a_pointer(curr)):
+                        parameter_pointer_count += 1
+                        state = 6
+                    elif(self._is_token_a_identifier(curr)):
+                        state = 7
+                    elif(self._is_token_a_comma(curr)):
+                        parameter_list.append(
+                            CType(
+                                " ".join([token.value for token in parameter_types]),
+                                parameter_pointer_count
+                            )
+                        )
+                        state = 4
+                    elif(self._is_token_a_closing_parenthesis(curr)):
+                        parameter_list.append(
+                            CType(
+                                " ".join([token.value for token in parameter_types]),
+                                parameter_pointer_count
+                            )
+                        )
+                        statements.append(
+                            FunctionDeclaration(identifier,return_type, parameter_list, identifier)
+                        )
+                        state = 8
+                    else:
+                        raise CompilerSyntaxError("Unexpected token in function parameter declaration", self.tokens[i-1].line, self.tokens[i-1])
+                        
+                case 6:
+                    if(self._is_token_a_pointer(curr)):
+                        parameter_pointer_count += 1
+                        state = 6
+                    elif(self._is_token_a_identifier(curr)):
+                        state = 7
+                    elif(self._is_token_a_comma(curr)):
+                        parameter_list.append(
+                            CType(
+                                " ".join([token.value for token in parameter_types]),
+                                parameter_pointer_count
+                            )
+                        )
+                        state = 4
+                    elif(self._is_token_a_closing_parenthesis(curr)):
+                        parameter_list.append(
+                            CType(
+                                " ".join([token.value for token in parameter_types]),
+                                parameter_pointer_count
+                            )
+                        )
+                        statements.append(
+                            FunctionDeclaration(identifier,return_type, parameter_list, identifier)
+                        )
+                        state = 8
+                    else:
+                        raise CompilerSyntaxError("Unexpected token in function parameter declaration", self.tokens[i-1].line, self.tokens[i-1])
+                case 7:
+                    if(self._is_token_a_comma(curr)):
+                        parameter_list.append(
+                            CType(
+                                " ".join([token.value for token in parameter_types]),
+                                parameter_pointer_count
+                            )
+                        )
+                        state = 4
+                    elif(self._is_token_a_closing_parenthesis(curr)):
+                        parameter_list.append(
+                            CType(
+                                " ".join([token.value for token in parameter_types]),
+                                parameter_pointer_count
+                            )
+                        )
+                        statements.append(
+                            FunctionDeclaration(identifier,return_type, parameter_list, identifier)
+                        )
+                        state = 8
+                    else:
+                        raise CompilerSyntaxError("Unexpected token in function parameter declaration", self.tokens[i-1].line, self.tokens[i-1])
+                case 8:
+                    if(self._is_token_a_comma(curr)):
+                        state = 2
+                        pointer_count = 0
+                    else:
+                        raise CompilerSyntaxError("Unexpected token in function parameter declaration", self.tokens[i-1].line, self.tokens[i-1])
+                    
+                
+                case 9:
+                    i += 1
+                    expression_start = i-3
+                    state = 10
+                    while(i < j):
+                        curr = self.tokens[i]
+                        if(self._is_token_a_open_parenthesis(curr)):
+                            i = self.parenthesis_skip_list[i]
+                        elif(self._is_token_a_comma(curr)):
+                            state = 2
+                            break
+                        i += 1
+
+                        
+                    print(expression_start, i)
+                    statements.append(self._parse_expression(expression_start, i))
+            i += 1
+        
+        if(state not in [3, 8, 10]):
+            raise CompilerSyntaxError("Unexpected end in variable declaration", self.tokens[i-1].line, self.tokens[i-1])
+            
+        
+        return statements
+    
+    # def _parse_
+
+    # def _parse_external_statement(self, i, j):
+
+    def _analyze_parenthesis(self, tokens : List[Token]) -> List[int]:
+        sta = []
+        out = [ -1 for _ in tokens ]
+
+        for i, curr in enumerate(tokens):
+            if(curr.value == "(" and curr.type == LexicalAnalyzer.SEPARATOR):
                 sta.append((0, i))
-            elif(curr.type == "[" and curr.type == LexicalAnalyzer.SEPARATOR):
+            elif(curr.value == "[" and curr.type == LexicalAnalyzer.SEPARATOR):
                 sta.append((1, i))
-            elif(curr.type == "{" and curr.type == LexicalAnalyzer.SEPARATOR):
+            elif(curr.value == "{" and curr.type == LexicalAnalyzer.SEPARATOR):
                 sta.append((2, i))
-            elif(curr.type == ")" and curr.type == LexicalAnalyzer.SEPARATOR):
+            elif(curr.value == ")" and curr.type == LexicalAnalyzer.SEPARATOR):
                 if(len(sta) == 0 or sta[-1][0] != 0):
                     raise CompilerSyntaxError(
                         message="Unmatched closing parenthesis",
@@ -508,7 +840,7 @@ class SyntaticAnalyzer:
                 _, index = sta.pop()
                 out[i] = index
                 out[index] = i
-            elif(curr.type == "]" and curr.type == LexicalAnalyzer.SEPARATOR):
+            elif(curr.value == "]" and curr.type == LexicalAnalyzer.SEPARATOR):
                 if(len(sta) == 0 or sta[-1][0] != 1):
                     raise CompilerSyntaxError(
                         message="Unmatched closing square bracket",
@@ -517,7 +849,7 @@ class SyntaticAnalyzer:
                 _, index = sta.pop()
                 out[i] = index
                 out[index] = i
-            elif(curr.type == "}" and curr.type == LexicalAnalyzer.SEPARATOR):
+            elif(curr.value == "}" and curr.type == LexicalAnalyzer.SEPARATOR):
                 if(len(sta) == 0 or sta[-1][0] != 2):
                     raise CompilerSyntaxError(
                         message="Unmatched closing curly brace",
@@ -526,7 +858,6 @@ class SyntaticAnalyzer:
                 _, index = sta.pop()
                 out[i] = index
                 out[index] = i
-            i += 1
         
         if(len(sta) != 0):
             opening_type, opening_index = sta[-1]
@@ -544,7 +875,12 @@ class SyntaticAnalyzer:
 
 
         return out
-        
 
-    def analyze(self, tokens: list[tuple[str, int, int]]):
-        return self._parse_statement(tokens, 0, len(tokens))
+
+    def __init__(self, tokens: list[Token]):
+        self.tokens = tokens
+        self.parenthesis_skip_list = self._analyze_parenthesis(self.tokens)
+
+
+    def analyze(self):
+        return self._parse_statement(0, len(self.tokens))

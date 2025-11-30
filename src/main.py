@@ -27,10 +27,10 @@ int main() {
         #text = """for (int i = 0 i < 10 i++)  { x = x + 1; }"""
         tokens = lexer.analyze(text)
 
-        syn = SyntaticAnalyzer()
+        syn = SyntaticAnalyzer(tokens)
 
         print("--------- Syntactic Analysis ---------")
-        tree = syn.analyze(tokens)
+        tree = syn.analyze()
         print(tree)
 
         # semantic = SemanticAnalyzer()
