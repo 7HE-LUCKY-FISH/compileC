@@ -23,7 +23,7 @@ class StackPosition:
         self.offset_from_top = offset_from_top
     
     def get_offset(self):
-        return self.function_parameter.stack_memory_allocation - self.offset_from_top
+        return self.function_parameter.stack_memory_allocation - self.offset_from_top + 16
 
 class SemanticAnalyzer():
 
@@ -47,6 +47,20 @@ class SemanticAnalyzer():
             raise CompilerSyntaxError(f"Unknown Identifier \"{tree.identifier}\"", tree.line)
         
         if(tree.type == SyntaxTree.EXPRESSION):
+            # print(tree.expression_type)
+            if(tree.expression_type == "FUNCTION_CALL"):
+                # print(tree)
+                if(tree.function_name.type == SyntaxTree.IDENTIFIER):
+                    param_types = [  self.get_type(child, local_scope, function_parameters) for child in tree.parameters ]
+                    name = tree.function_name.value
+                    if(name in self.global_scope):
+                        tree.data_type = self.global_scope[name].return_type
+                        return self.global_scope[name].return_type
+                    
+
+        # self.function_name = function_name
+        # self.parameters = parameters
+            
             if(tree.expression_type == "?"):
                 arg_types = [ self.get_type(child, local_scope, function_parameters) for child in tree.children ]
                 if(arg_types[0] != "bool" or arg_types[1] != arg_types[2]):
@@ -78,6 +92,7 @@ class SemanticAnalyzer():
             arg_types = [ self.get_type(child, local_scope, function_parameters) for child in tree.children ]
             print("Argument types:", arg_types)
             return_type = CLib.get_operation_return_type(tree.expression_type, arg_types)
+            print(return_type)
             if(return_type is not None):
                 tree.data_type = return_type
                 return return_type
@@ -98,6 +113,17 @@ class SemanticAnalyzer():
             # self.get_type(tree.children[3], local_scope)
             return "void"
         
+        if(tree.type == SyntaxTree.CONDITIONAL_STATEMENT):
+            [ self.get_type(child, local_scope, function_parameters) for child in tree.children ]
+            return "void"
+            
+        if(tree.type == SyntaxTree.RETURN_STATEMENT):
+            # print("KILL YOUR SELF")
+            self.get_type(tree.children[0], local_scope, function_parameters)
+            # print(tree.children[0].data_type)
+            # [ self.get_type(child, local_scope, function_parameters) for child in tree.children ]
+            return "void"
+
         # if(tree.type == SyntaxTree.FUNCTION_DECLARATION):
         #     for child in tree.children:
         #         self.get_type(child, local_scope)
@@ -125,9 +151,10 @@ class SemanticAnalyzer():
         
         if(tree.type == SyntaxTree.FUNCTION_DEFINITION):
             local_scope = local_scope.copy()
-            for param in tree.parameters:
-                local_scope[param.identifier] = param.declared_type
+            for ident, type in tree.parameters:
+                local_scope[ident] = type
             tree.function_parameters = FunctionParameters()
+            self.global_scope[tree.identifier] = tree.function_type
             self.get_type(tree.body, local_scope, tree.function_parameters)
             return "void"
         

@@ -638,7 +638,7 @@ class SyntaticAnalyzer:
         condition = self._parse_expression(open_paren + 1, close_paren)
         then_body, i = self._parse_statement(close_paren + 1, j)
         
-        else_body = None
+        else_body = [None]
         if i < j and self.tokens[i].value == "else":
             else_body, i = self._parse_statement(i + 1, j)
         
@@ -1042,9 +1042,9 @@ class SyntaticAnalyzer:
             
         body, i = self._parse_block(i, j)
         return FunctionDefinition(
-                            identifier,
+                            identifier.value,
                             return_type,
-                            zip([ n.value for n in parameter_names], parameter_list),
+                            list(zip([ n.value for n in parameter_names], parameter_list)),
                             body[0],
                             identifier
                         )

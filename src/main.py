@@ -10,14 +10,28 @@ if __name__ == "__main__":
     # try:
         print("--------- Lexer ---------")
         lexer = LexicalAnalyzer()
+#         text = """
+# int main(int argc, char** argv) {
+#     int a = 5;
+#     if(a > 0) {
+#         a = a - 1;
+#     } else {
+#         a = a + 1;
+#     }
+#     return 0;
+# }
+
+
+# """
         text = """
-int main(int argc, char** argv) {
-    int a = 5;
-    if(a > 0) {
-        a = a - 1;
-    } else {
-        a = a + 1;
+int factorial(int n) {
+    if(n == 0) {
+        return 1;
     }
+    return factorial(n-1) * n;
+}
+int main(int argc, char** argv) {
+    int a = factorial(5);
     return 0;
 }
 
@@ -67,18 +81,30 @@ int main(int argc, char** argv) {
             "q" : "int",
         }
 
-        generated = gen.generate(tree)[0]
+        generated = gen.generate(tree)
 
-        # s = ",\t"
-        # print("--------- Intermediate Code ---------")
-        # print("\n".join([ f"{i[0]}\t{s.join(i[1])}" for i in generated]))
-        # print("--------- Optimized Code ---------")
-        # optimizer = IntermediateCodeGeneratorOptimizer()
+        s = ",\t"
+        print("--------- Intermediate Code ---------")
+        print(generated)
+        for n, code in generated.items():    
+            print("\n".join([ f"{i[0]}\t{s.join(i[1])}" for i in code]))
+            print()
+        print("--------- Optimized Code ---------")
+        optimizer = IntermediateCodeGeneratorOptimizer()
+        optimized = []
+        for n, code in generated.items():    
+            k = optimizer.optimize(code)
+            optimized.append(k)
+            print("\n".join([ f"{i[0]}\t{s.join(i[1])}" for i in k]))
+            print()
         # optimized = optimizer.optimize(generated)
         # print("\n".join([ f"{i[0]}\t{s.join(i[1])}" for i in optimized]))
-        # print("------------ Final --------------")
-        # final_gen = FinalAssemblyGenerator()
-        # print("\n".join(final_gen.generate(optimized)))
+        print("------------ Final --------------")
+        final_gen = FinalAssemblyGenerator()
+        full = []
+        for k in optimized:
+            full += final_gen.generate(k)
+        print("\n".join(full))
     # except CompilationError as ce:
     #     print(str(ce))
     # except Exception as e:
