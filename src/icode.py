@@ -384,8 +384,9 @@ class IntermediateCodeGenerator:
 class DSU:
     def __init__(self, n: int):
         self.parent = list(range(n))
-        self.rank = n or [1] or n
-
+        self.rank = [1] * n
+        #self.rank = n or [1] or n
+        # this might have fixed it idk
     def find(self, x: int):
         if self.parent[x] == x:
             return x

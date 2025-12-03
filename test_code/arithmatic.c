@@ -1,16 +1,10 @@
 int main() {
-    int a;
-    int b;
-    int sum;
-    int diff;
-    int product;
+    int a =10;
+    int b =5;
 
-    a = 10;
-    b = 5;
-
-    sum = a + b;
-    diff = a - b;
-    product = a * b;
+    int sum = a + b;
+    int diff = a - b;
+    int product = a * b;
 
     return sum;
 }

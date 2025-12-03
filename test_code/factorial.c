@@ -1,15 +1,11 @@
 int factorial(int n) {
-    if (n <= 1) {
+    if(n == 0) {
         return 1;
     }
-    return n * factorial(n - 1);
+    return factorial(n-1) * n;
 }
-
-int main() {
-    int x;
-    int result;
-
-    x = 5;
-    result = factorial(x);
-    return result;
+int main(int argc, char** argv) {
+    int a = factorial(5);
+    int b = factorial(0);
+    return a;
 }

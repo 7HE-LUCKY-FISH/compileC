@@ -44,7 +44,7 @@ class SemanticAnalyzer():
                 tree.data_type = self.global_scope[tree.identifier]
                 return self.global_scope[tree.identifier]
             
-            raise CompilerSyntaxError(f"Unknown Identifier \"{tree.identifier}\"", tree.line)
+            raise CompilerSyntaxError(f"Unknown Identifier \"{tree.identifier}\"", tree.token.line)
         
         if(tree.type == SyntaxTree.EXPRESSION):
             # print(tree.expression_type)

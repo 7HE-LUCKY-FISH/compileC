@@ -47,6 +47,22 @@ class SyntaxTree:
     def __repr__(self):
         return self.__str__()
 
+
+class ForStatement(SyntaxTree):
+    def __init__(self, token, init, cond, update, body):
+        super().__init__(SyntaxTree.FOR_STATEMENT, "for", token.line, token)
+        self.init = init
+        self.cond = cond
+        self.update = update
+        self.body = body
+        self.children = [init, cond, update, body]
+
+class BlockStatement(SyntaxTree):
+    def __init__(self, token, statements):
+        super().__init__(SyntaxTree.BLOCK_STATEMENT, "block", token.line, token)
+        self.statements = statements
+        self.children = statements
+
 class Expression(SyntaxTree):
     def __init__(self, expression_type:str, children: list, token: Token):
         super().__init__(SyntaxTree.EXPRESSION, expression_type, 0, token)
@@ -157,13 +173,21 @@ class ReturnStatement(SyntaxTree):
         super().__init__(SyntaxTree.RETURN_STATEMENT, 0, 0, token)
         self.children = [expression]
 
+
+class WhileStatement(SyntaxTree):
+    def __init__(self, token, condition, body):
+        super().__init__(SyntaxTree.WHILE_STATEMENT, "while", token.line, token)
+        self.condition = condition
+        self.body = body
+        self.children = [condition, body]
+''' idk why I broke this
 class WhileStatement(SyntaxTree):
     def __init__(self, condition:Expression, body:SyntaxTree, token:Token):
         super().__init__(SyntaxTree.WHILE_STATEMENT, 0, 0, token)
         self.condition = condition
         self.body = body
         self.children = [condition, body]
-
+'''
 class ConditionalStatement(SyntaxTree):
     def __init__(self, condition:Expression, if_block:SyntaxTree, else_block:SyntaxTree | None, token:Token):
         super().__init__(SyntaxTree.CONDITIONAL_STATEMENT, 0, 0, token)
@@ -578,8 +602,7 @@ class SyntaticAnalyzer:
         condition = self._parse_expression(open_paren + 1, close_paren)
         body, i = self._parse_statement(close_paren + 1, j)
 
-        tree = SyntaxTree(SyntaxTree.WHILE_STATEMENT, "while", self.tokens[i].value)
-        tree.children = [condition, body]
+        tree = WhileStatement(self.tokens[i], condition, body[0])
         
         return [ tree ], i
 
@@ -600,18 +623,14 @@ class SyntaticAnalyzer:
 
         cond_tree = self._parse_expression(semi_locs[0] + 1, semi_locs[1])
         update_tree = self._parse_expression(semi_locs[1] + 1, close_paren)
-
-
-            
-        
+                    
         body_tree, i = self._parse_statement(close_paren + 1, j)
 
-
         loop_tree = WhileStatement(
+            self.tokens[i],
             cond_tree,
             BlockStatement(body_tree + [update_tree], self.tokens[i]),
         )
-
 
         tree = BlockStatement(init_tree + [loop_tree], self.tokens[i])
         # tree = SyntaxTree(SyntaxTree.FOR_STATEMENT, "for", self.tokens[i].value)
