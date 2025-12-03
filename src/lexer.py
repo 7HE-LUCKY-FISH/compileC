@@ -1,6 +1,7 @@
 from typing import *
 from trie import Trie
 from errors import CompilationError
+from token import Token
 
 KEYWORDS = [
     "alignas",
@@ -361,7 +362,9 @@ class LexicalAnalyzer:
 
             if s[i].isspace():
                 if s[i] == '\n':
+                    col = 0
                     line += 1
+                
                 i += 1
                 continue
 
@@ -371,7 +374,7 @@ class LexicalAnalyzer:
                 raise CompilationError(f"Unexpected character '{s[i]}'", line, s[i])
             
             if(typ != None):
-                tokens.append((s[i:j], typ, line))
+                tokens.append(Token(typ, s[i:j], line, i))
             # Count newlines in the token
             for c in s[i:j]:
                 if c == '\n':
@@ -391,7 +394,7 @@ class LexicalAnalyzer:
             "OTHER"
         ]
 
-        for tk, typ, ln in tokens:
-            print(tk, typestr[typ], ln)
+        for token in tokens:
+            print(token, typestr[token.type])
         
         return tokens
