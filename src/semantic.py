@@ -88,11 +88,10 @@ class SemanticAnalyzer():
                     raise CompilerSyntaxError(f"Cannot index non-pointer type {array_type.base}", tree.line)
                 tree.data_type = CType(array_type.base, array_type.pointer_count - 1)
                 return tree.data_type
-            print("Expression operation:", tree.expression_type)
+
             arg_types = [ self.get_type(child, local_scope, function_parameters) for child in tree.children ]
-            print("Argument types:", arg_types)
             return_type = CLib.get_operation_return_type(tree.expression_type, arg_types)
-            print(return_type)
+
             if(return_type is not None):
                 tree.data_type = return_type
                 return return_type
