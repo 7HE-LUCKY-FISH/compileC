@@ -188,7 +188,7 @@ class IntermediateCodeGenerator:
         if(tree.type == SyntaxTree.NUMERIC_LITERAL):
             reg = self._get_next_temp_register()
             return [(
-                "ldi", (reg, str(tree.expression_type), "")
+                "ldi", (reg, str(tree.value), "")
             )], reg, reg
         
         if(tree.type == SyntaxTree.IDENTIFIER):
